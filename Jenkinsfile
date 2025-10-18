@@ -10,7 +10,7 @@ pipeline {
               containers:
               - name: docker
                 image: docker:28.5.1-cli-alpine3.22
-                command: [ "cat" ]
+                command: ["cat"]
                 tty: true
                 volumeMounts:
                   - mountPath: /var/run/docker.sock
@@ -33,23 +33,22 @@ pipeline {
         stage('Docker Build & Push - Backend') {
             steps {
                 container('docker') {
-                    dir('backend') {
-                        script {
-                            def tag = "v${env.BUILD_NUMBER}"
+                    script {
+                        def tag = "v${env.BUILD_NUMBER}"
 
-                            withCredentials([usernamePassword(
-                                credentialsId: DOCKER_CREDENTIALS_ID,
-                                usernameVariable: 'DOCKER_USERNAME',
-                                passwordVariable: 'DOCKER_PASSWORD'
-                            )]) {
-                                sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
-                            }
-
-                            sh """
-                            docker build -f Dockerfile -t ${BACKEND_IMAGE}:${tag} .
-                            docker push ${BACKEND_IMAGE}:${tag}
-                            """
+                        withCredentials([usernamePassword(
+                            credentialsId: DOCKER_CREDENTIALS_ID,
+                            usernameVariable: 'DOCKER_USERNAME',
+                            passwordVariable: 'DOCKER_PASSWORD'
+                        )]) {
+                            sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
                         }
+
+                        // 🔹 Dockerfile 경로와 컨텍스트를 명시
+                        sh """
+                        docker build -f backend/Dockerfile -t ${BACKEND_IMAGE}:${tag} backend/
+                        docker push ${BACKEND_IMAGE}:${tag}
+                        """
                     }
                 }
             }
@@ -58,23 +57,22 @@ pipeline {
         stage('Docker Build & Push - Frontend') {
             steps {
                 container('docker') {
-                    dir('frontend') {
-                        script {
-                            def tag = "v${env.BUILD_NUMBER}"
+                    script {
+                        def tag = "v${env.BUILD_NUMBER}"
 
-                            withCredentials([usernamePassword(
-                                credentialsId: DOCKER_CREDENTIALS_ID,
-                                usernameVariable: 'DOCKER_USERNAME',
-                                passwordVariable: 'DOCKER_PASSWORD'
-                            )]) {
-                                sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
-                            }
-
-                            sh """
-                            docker build -t ${FRONTEND_IMAGE}:${tag} .
-                            docker push ${FRONTEND_IMAGE}:${tag}
-                            """
+                        withCredentials([usernamePassword(
+                            credentialsId: DOCKER_CREDENTIALS_ID,
+                            usernameVariable: 'DOCKER_USERNAME',
+                            passwordVariable: 'DOCKER_PASSWORD'
+                        )]) {
+                            sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
                         }
+
+                        // 🔹 Frontend도 동일하게 컨텍스트 명시
+                        sh """
+                        docker build -f frontend/Dockerfile -t ${FRONTEND_IMAGE}:${tag} frontend/
+                        docker push ${FRONTEND_IMAGE}:${tag}
+                        """
                     }
                 }
             }
@@ -85,7 +83,7 @@ pipeline {
                 script {
                     def tag = "v${env.BUILD_NUMBER}"
 
-                    // ArgoCD 매니페스트 프로젝트에 이미지 태그 업데이트 등 수행하도록 트리거
+                    // ArgoCD 매니페스트 업데이트 트리거
                     build job: 'be18-4th-5team-project-manifests',
                         parameters: [
                             string(name: 'BACKEND_IMAGE_TAG', value: tag),
