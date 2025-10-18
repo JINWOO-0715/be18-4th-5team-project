@@ -27,21 +27,22 @@ pipeline {
                 // Kaniko가 인증 정보를 읽을 수 있도록 K8s Secret을 생성/업데이트합니다.
                 // withCredentials 블록 내부에서만 사용자 이름과 비밀번호를 노출합니다.
                 withCredentials([usernamePassword(credentialsId: DOCKER_CRED, passwordVariable: 'PASS', usernameVariable: 'USER')]) {
-                    // 사용자 이름과 비밀번호를 Base64로 인코딩하여 Secret YAML을 생성합니다.
+                    // 셸 스크립트 대신 Groovy 변수를 직접 문자열에 주입
+                    def encodedAuth = "${USER}:${PASS}".bytes.encodeBase64().toString()
+
                     sh """
                     # 임시 파일에 Docker config.json 생성
                     echo '{
                     "auths": {
                         "https://index.docker.io/v1/": {
-                        // 👈 $USER와 $PASS 앞에 백슬래시(\) 추가
-                        "auth": "$(echo -n \\$USER:\\$PASS | base64 -w 0)"
+                        "auth": "${encodedAuth}" // 이미 인코딩된 문자열을 삽입
                         }
                     }
                     }' > config.json
 
                     # Secret 생성/업데이트
-                    kubectl create secret generic regcred --from-file=.dockerconfigjson=config.json \\
-                      --type=kubernetes.io/dockerconfigjson -n default --dry-run=client -o yaml | kubectl apply -f -
+                    kubectl create secret generic regcred --from-file=.dockerconfigjson=config.json \
+                    --type=kubernetes.io/dockerconfigjson -n default --dry-run=client -o yaml | kubectl apply -f -
                     
                     rm config.json
                     """
