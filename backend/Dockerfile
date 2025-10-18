@@ -10,7 +10,7 @@ RUN [ "mvn", "package", "-DskipTests" ]
 # -------------------- 2단계: 최종 실행 환경 (경량화) --------------------
 FROM eclipse-temurin:21-jre-alpine-3.22
 # 1단계에서 생성된 JAR 파일만 복사합니다.
-COPY --from=builder /app/target/department-service-0.0.1-SNAPSHOT.jar /root/app.jar
+COPY --from=builder /app/target/4th-backedn-0.0.1-SNAPSHOT.jar /root/app.jar
 
 ARG BUILD_PROFILE=dev
 ENV APP_PROFILE=${BUILD_PROFILE}
