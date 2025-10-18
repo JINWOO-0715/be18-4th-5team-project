@@ -2,24 +2,33 @@ pipeline {
     agent {
         kubernetes {
             yaml '''
-            apiVersion: v1
-            kind: Pod
-            metadata:
-              name: jenkins-agent
-            spec:
-              containers:
-              - name: docker
-                image: docker:28.5.1-cli-alpine3.22
-                command: ["cat"]
-                tty: true
-                volumeMounts:
-                  - mountPath: /var/run/docker.sock
-                    name: docker-socket
-              volumes:
-              - name: docker-socket
-                hostPath:
-                  path: /var/run/docker.sock
-            '''
+apiVersion: v1
+kind: Pod
+metadata:
+  name: jenkins-agent
+spec:
+  volumes:
+    - name: docker-socket
+      hostPath:
+        path: /var/run/docker.sock
+    - name: workspace-volume
+      emptyDir: {}   # ✅ jnlp와 docker 컨테이너가 workspace 공유
+  containers:
+    - name: docker
+      image: docker:28.5.1-cli-alpine3.22
+      command: ["cat"]
+      tty: true
+      volumeMounts:
+        - name: docker-socket
+          mountPath: /var/run/docker.sock
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent   # ✅ 공유된 워크스페이스
+    - name: jnlp
+      image: jenkins/inbound-agent:3341.v0766d82b_dec0-1
+      volumeMounts:
+        - name: workspace-volume
+          mountPath: /home/jenkins/agent   # ✅ 동일하게 공유
+'''
         }
     }
 
@@ -44,7 +53,6 @@ pipeline {
                             sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
                         }
 
-                        // 🔹 Dockerfile 경로와 컨텍스트를 명시
                         sh """
                         docker build -f backend/Dockerfile -t ${BACKEND_IMAGE}:${tag} backend/
                         docker push ${BACKEND_IMAGE}:${tag}
@@ -68,7 +76,6 @@ pipeline {
                             sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
                         }
 
-                        // 🔹 Frontend도 동일하게 컨텍스트 명시
                         sh """
                         docker build -f frontend/Dockerfile -t ${FRONTEND_IMAGE}:${tag} frontend/
                         docker push ${FRONTEND_IMAGE}:${tag}
@@ -82,8 +89,6 @@ pipeline {
             steps {
                 script {
                     def tag = "v${env.BUILD_NUMBER}"
-
-                    // ArgoCD 매니페스트 업데이트 트리거
                     build job: 'be18-4th-5team-project-manifests',
                         parameters: [
                             string(name: 'BACKEND_IMAGE_TAG', value: tag),
