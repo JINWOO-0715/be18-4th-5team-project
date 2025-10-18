@@ -1,129 +1,104 @@
+// Jenkinsfile (Windows 환경용)
+
 pipeline {
-    agent {
-        kubernetes {
-            yaml '''
-            apiVersion: v1
-            kind: Pod
-            metadata:
-              name: jenkins-agent
-            spec:
-              containers:
-              - name: docker
-                image: docker:28.5.1-cli-alpine3.22
-                command:
-                - cat
-                tty: true
-                volumeMounts:
-                - mountPath: "/var/run/docker.sock"
-                  name: docker-socket
-              volumes:
-              - name: docker-socket
-                hostPath:
-                  path: "/var/run/docker.sock"
-            '''
-        }
-    }
+
+    agent any
 
     environment {
-        FRONTEND_IMAGE_NAME = 'pjw1480/4th-frontend'       
-        BACKEND_IMAGE_NAME = 'pjw1480/4th-backend'    
-        DOCKER_CREDENTIALS_ID = 'docker-hub-credential	'
+        // 사용자 환경 변수를 입력하세요.
+        DOCKER_REGISTRY = 'docker.io'
+        REPO_NAME = '4th-app'
+        GIT_OPS_REPO = 'https://github.com/JINWOO-0715/be18-4th-5team-project-manifests.git'
+        GIT_OPS_BRANCH = 'main'
+        DOCKER_CRED_ID = 'docker-hub-credential'
+        GIT_CRED_ID = 'git-push-credential' 
+        MANIFEST_PATH = 'Deploy/deployment.yaml' // ArgoCD가 바라보는 매니페스트 파일 경로
+
+        // 자동 생성 변수
+        IMAGE_TAG = "${env.BUILD_NUMBER}" 
+        BACKEND_IMAGE = "${DOCKER_REGISTRY}/${REPO_NAME}-backend:${IMAGE_TAG}"
+        FRONTEND_IMAGE = "${DOCKER_REGISTRY}/${REPO_NAME}-frontend:${IMAGE_TAG}"
     }
 
     stages {
-        stage('Detect Changes') {
+        // 1. 소스코드 체크아웃
+        stage('Checkout Source') {
+            steps {
+                checkout scm
+            }
+        }
+
+        // 2. 백엔드 빌드 (Windows 명령어 사용)
+        stage('Build Backend') {
+            steps {
+                dir('backend') {
+                    // 💡 2. 백엔드 빌드 명령어로 변경하세요. (예: Maven, Gradle, Node 등)
+                    bat 'mvn clean package' 
+                }
+            }
+        }
+
+        // 3. 프론트엔드 빌드
+        stage('Build Frontend') {
+            steps {
+                dir('frontend') {
+                    // 💡 3. 프론트엔드 빌드 명령어로 변경하세요. (npm, yarn 등)
+                    bat 'npm install'
+                    bat 'npm run build'
+                }
+            }
+        }
+
+        // 4. 도커 이미지 빌드 및 푸시
+        stage('Build & Push Images') {
             steps {
                 script {
-                    def changedFiles = sh(script: 'git diff --name-only HEAD~1', returnStdout: true).trim().split("\n")
-                    echo "Changed files:\n${changedFiles.join('\n')}"
-                    
-                    // [수정됨]: 변경 감지 폴더 경로를 4th-frontend/ 와 4th-backend/로 변경
-                    env.SHOULD_BUILD_FRONTEND = changedFiles.any { it.startsWith("4th-frontend/") } ? "true" : "false"
-                    env.SHOULD_BUILD_BACKEND = changedFiles.any { it.startsWith("4th-backend/") } ? "true" : "false"
-
-                    // [수정됨]: 환경 변수 이름 변경
-                    echo "SHOULD_BUILD_FRONTEND : ${SHOULD_BUILD_FRONTEND}"
-                    echo "SHOULD_BUILD_BACKEND : ${SHOULD_BUILD_BACKEND}"
-                }
-            }
-        }
-
-        stage('Docker Login') {
-            steps {
-                container('docker') {
-                    sh 'docker logout'
-
-                    withCredentials([usernamePassword(
-                        credentialsId: DOCKER_CREDENTIALS_ID,
-                        usernameVariable: 'DOCKER_USERNAME',
-                        passwordVariable: 'DOCKER_PASSWORD'
-                    )]) {
-                        sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                    // Docker 로그인 (윈도우 환경에 맞게 withCredentials 사용)
+                    withCredentials([usernamePassword(credentialsId: env.DOCKER_CRED_ID, passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                        // 윈도우에서는 docker login 명령어만 사용해도 됩니다.
+                        bat "docker login ${DOCKER_REGISTRY} -u ${DOCKER_USER} -p ${DOCKER_PASS}"
                     }
+
+                    // 백엔드 이미지 빌드/푸시
+                    bat "docker build -t ${BACKEND_IMAGE} ./backend"
+                    bat "docker push ${BACKEND_IMAGE}"
+
+                    // 프론트엔드 이미지 빌드/푸시
+                    bat "docker build -t ${FRONTEND_IMAGE} ./frontend"
+                    bat "docker push ${FRONTEND_IMAGE}"
                 }
             }
         }
 
-        stage('Frontend Image Build & Push') {
-            when { expression { return env.SHOULD_BUILD_FRONTEND == "true" } }
-            
+        // 5. GitOps 저장소 업데이트 (새로운 이미지 태그 반영)
+        stage('Update GitOps Manifest') {
             steps {
-                container('docker') {
-                    dir('4th-frontend') { // [수정됨]: 폴더 경로 변경
-                        script {
-                            def buildNumber = "${env.BUILD_NUMBER}"
-                            withEnv(["DOCKER_IMAGE_VERSION=${buildNumber}"]) {
-                                sh 'docker -v'
-                                // [수정됨]: FRONTEND_IMAGE_NAME 변수 사용
-                                sh 'echo $FRONTEND_IMAGE_NAME:$DOCKER_IMAGE_VERSION'
-                                sh 'docker build --no-cache -t $FRONTEND_IMAGE_NAME:$DOCKER_IMAGE_VERSION ./'
-                                sh 'docker image inspect $FRONTEND_IMAGE_NAME:$DOCKER_IMAGE_VERSION'
-                                sh 'docker push $FRONTEND_IMAGE_NAME:$DOCKER_IMAGE_VERSION'
-                            }
+                script {
+                    // GitOps 레포지토리 클론
+                    bat "git clone ${GIT_OPS_REPO} gitops-clone"
+                    dir('gitops-clone') {
+                        // Git 인증 정보 설정
+                        withCredentials([string(credentialsId: env.GIT_CRED_ID, variable: 'GIT_AUTH_TOKEN')]) { 
+                            def GIT_PUSH_URL = "https://${GIT_AUTH_TOKEN}@${env.GIT_OPS_REPO.replace('https://', '')}"
+                            bat "git clone ${env.GIT_OPS_REPO} gitops-clone"
+                            dir('gitops-clone') {
+                            // 2. Kustomize를 사용하여 이미지 태그 패치 (Kustomize가 설치되어 있어야 함!)
+                            bat "kustomize edit set image backend-image=${env.BACKEND_IMAGE}"
+                            bat "kustomize edit set image frontend-image=${env.FRONTEND_IMAGE}"
+                            
+                            // 3. 변경 사항 커밋 및 푸시
+                            bat 'git config user.email "jenkins@ci.com"'
+                            bat 'git config user.name "Jenkins CI"'
+                            bat 'git add .'
+                            bat "git commit -m \"[CI] Update images to build ${env.IMAGE_TAG}\""
+                            
+                            // 4. HTTPS 토큰 인증을 사용하는 푸시
+                            bat "git push ${GIT_PUSH_URL}"
                         }
                     }
                 }
             }
         }
-
-        stage('Backend Image Build & Push') {
-            when { expression { return env.SHOULD_BUILD_BACKEND == "true" } }
-
-            steps {
-                container('docker') {
-                    dir('4th-backend') { // [수정됨]: 폴더 경로 변경
-                        script {
-                            def buildNumber = "${env.BUILD_NUMBER}"
-                            withEnv(["DOCKER_IMAGE_VERSION=${buildNumber}"]) {
-                                sh 'docker -v'
-                                // [수정됨]: BACKEND_IMAGE_NAME 변수 사용
-                                sh 'echo $BACKEND_IMAGE_NAME:$DOCKER_IMAGE_VERSION'
-                                sh 'docker build --no-cache -t $BACKEND_IMAGE_NAME:$DOCKER_IMAGE_VERSION ./'
-                                sh 'docker image inspect $BACKEND_IMAGE_NAME:$DOCKER_IMAGE_VERSION'
-                                sh 'docker push $BACKEND_IMAGE_NAME:$DOCKER_IMAGE_VERSION'
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Trigger k8s-manifests') {
-            steps {
-                script {
-                    def buildNumber = "${env.BUILD_NUMBER}"
-                    // DOCKER_IMAGE_VERSION은 buildNumber와 동일하므로, 아래 withEnv 블록은 사실상 필요 없습니다.
-                    // 간결성을 위해 제거하고 바로 build job을 호출하겠습니다.
-
-                    build job: '4th-k8s-manifests', 
-                        parameters: [
-                            string(name: 'DOCKER_IMAGE_VERSION', value: "${buildNumber}"), // env.BUILD_NUMBER를 직접 사용
-                            string(name: 'DID_BUILD_FRONTEND', value: "${env.SHOULD_BUILD_FRONTEND}"), // [수정됨]: 파라미터 이름 변경
-                            string(name: 'DID_BUILD_BACKEND', value: "${env.SHOULD_BUILD_BACKEND}")   // [수정됨]: 파라미터 이름 변경
-                        ],
-                        wait: true
-                }
-            }
         }
     }
 }
