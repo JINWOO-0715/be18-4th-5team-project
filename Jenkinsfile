@@ -31,11 +31,12 @@ pipeline {
                     sh """
                     # 임시 파일에 Docker config.json 생성
                     echo '{
-                      "auths": {
+                    "auths": {
                         "https://index.docker.io/v1/": {
-                          "auth": "$(echo -n \$USER:\$PASS | base64 -w 0)"
+                        // 👈 $USER와 $PASS 앞에 백슬래시(\) 추가
+                        "auth": "$(echo -n \\$USER:\\$PASS | base64 -w 0)"
                         }
-                      }
+                    }
                     }' > config.json
 
                     # Secret 생성/업데이트
@@ -115,4 +116,5 @@ pipeline {
             }
         }
     }
+
 }
