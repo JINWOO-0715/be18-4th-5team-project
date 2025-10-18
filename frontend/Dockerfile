@@ -1,6 +1,7 @@
 FROM node:alpine3.22 as builder
 WORKDIR /app
 COPY . .
+RUN rm -rf node_modules && npm cache clean --force
 RUN npm install
 RUN npm run build
 FROM nginx:stable-alpine3.21
