@@ -46,7 +46,7 @@ pipeline {
                             }
 
                             sh """
-                            docker build -t ${BACKEND_IMAGE}:${tag} .
+                            docker build -f Dockerfile -t ${BACKEND_IMAGE}:${tag}
                             docker push ${BACKEND_IMAGE}:${tag}
                             """
                         }
