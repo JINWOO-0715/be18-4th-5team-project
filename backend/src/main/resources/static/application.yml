@@ -4,7 +4,7 @@ spring:
   
   datasource:
     driver-class-name: org.mariadb.jdbc.Driver
-    url: ${DB_URL} 
+    url: ${DB_URL}
     username: ${SPRING_DATASOURCE_USERNAME:pjw1480}
     password: ${SPRING_DATABASE_PASSWORD}
   
@@ -42,6 +42,8 @@ jwt:
 
 logging:
   level:
+    org.springframework.jdbc: DEBUG
+    org.hibernate: DEBUG
     org.hibernate.SQL: debug
     org.hibernate.orm.jdbc.bind: trace
     org.springframework.security: DEBUG
